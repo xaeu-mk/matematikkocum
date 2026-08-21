@@ -3,12 +3,9 @@ compatibility_date = "2026-08-21"
 pages_build_output_dir = "dist"
 
 # Cloudflare Pages Functions
-# Create the D1 database in Cloudflare first, then replace DATABASE_ID
-# with the real ID shown by Cloudflare.
 [[d1_databases]]
 binding = "DB"
 database_name = "matematikkocum"
-database_id = "DATABASE_ID"
+database_id = "b5272320-8232-4914-afea-af65a14f1d48"
 
-# R2 is intentionally left out of this file until the production bucket
-# is created. The application expects the binding name STORAGE when enabled.
+# R2 binding will be added after the production bucket is created.
