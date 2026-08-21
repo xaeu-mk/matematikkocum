@@ -1,5 +1,6 @@
 import './style.css'
 import './login.css'
+import { renderAdmin } from './admin.js'
 
 const app = document.querySelector('#app')
 
@@ -69,4 +70,16 @@ const closeLogin = () => { overlay.hidden = true; document.body.style.overflow =
 document.querySelectorAll('[data-login]').forEach((button) => button.addEventListener('click', openLogin))
 document.querySelectorAll('[data-close-login]').forEach((element) => element.addEventListener('click', closeLogin))
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !overlay.hidden) closeLogin() })
-document.querySelector('#loginForm').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const note = document.querySelector('#loginNote'); note.textContent = 'Giriş servisine bağlanılıyor…'; try { const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: form.get('username'), password: form.get('password') }) }); const data = await response.json(); note.textContent = data.error || 'İşlem tamamlandı.' } catch { note.textContent = 'Sunucuya ulaşılamadı.' } })
+document.querySelector('#loginForm').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const form = new FormData(event.currentTarget)
+  const note = document.querySelector('#loginNote')
+  note.textContent = 'Giriş servisine bağlanılıyor…'
+  try {
+    const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: form.get('username'), password: form.get('password') }) })
+    const data = await response.json()
+    if (!response.ok || !data.ok) { note.textContent = data.error || 'Giriş başarısız.'; return }
+    if (data.user?.role === 'admin') { closeLogin(); await renderAdmin(app, data.user); return }
+    note.textContent = `${data.user?.fullName || 'Hesabın'} için ${data.user?.role || 'kullanıcı'} paneli bir sonraki fazda hazır olacak.`
+  } catch { note.textContent = 'Sunucuya ulaşılamadı.' }
+})
