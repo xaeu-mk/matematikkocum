@@ -2,6 +2,13 @@ name = "matematikkocum"
 compatibility_date = "2026-08-21"
 pages_build_output_dir = "dist"
 
-# Cloudflare Pages Functions can be added under /functions.
-# D1/R2 bindings should be configured in the Cloudflare dashboard or
-# added here later when production resources are created.
+# Cloudflare Pages Functions
+# Create the D1 database in Cloudflare first, then replace DATABASE_ID
+# with the real ID shown by Cloudflare.
+[[d1_databases]]
+binding = "DB"
+database_name = "matematikkocum"
+database_id = "DATABASE_ID"
+
+# R2 is intentionally left out of this file until the production bucket
+# is created. The application expects the binding name STORAGE when enabled.
