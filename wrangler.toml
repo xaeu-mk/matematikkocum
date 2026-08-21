@@ -1,0 +1,7 @@
+name = "matematikkocum"
+compatibility_date = "2026-08-21"
+pages_build_output_dir = "dist"
+
+# Cloudflare Pages Functions can be added under /functions.
+# D1/R2 bindings should be configured in the Cloudflare dashboard or
+# added here later when production resources are created.
