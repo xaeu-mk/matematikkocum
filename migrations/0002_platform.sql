@@ -1,0 +1,11 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,title TEXT NOT NULL,description TEXT,start_at TEXT NOT NULL,end_at TEXT NOT NULL,type TEXT DEFAULT 'study',created_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS coaching_plans (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,coach_id TEXT,goal TEXT NOT NULL,status TEXT DEFAULT 'active',notes TEXT,next_review_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(coach_id) REFERENCES users(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS evaluations (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,teacher_id TEXT,title TEXT NOT NULL,score REAL,feedback TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS progress_entries (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,metric TEXT NOT NULL,value REAL NOT NULL,target REAL,period TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT,url TEXT NOT NULL,subject TEXT,teacher_id TEXT,is_active INTEGER DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT PRIMARY KEY,theme TEXT DEFAULT 'dark',notifications INTEGER DEFAULT 1,language TEXT DEFAULT 'tr',updated_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS announcements (id TEXT PRIMARY KEY,title TEXT NOT NULL,body TEXT NOT NULL,created_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL);
+CREATE INDEX IF NOT EXISTS idx_calendar_user_date ON calendar_events(user_id,start_at);
+CREATE INDEX IF NOT EXISTS idx_progress_student ON progress_entries(student_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id,receiver_id,created_at);
