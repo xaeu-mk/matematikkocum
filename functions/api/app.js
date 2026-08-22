@@ -7,16 +7,18 @@ const safe = (v='') => String(v).trim()
 
 async function ensureSchema(db){
   const statements = [
+    `CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY,sender_id TEXT NOT NULL,receiver_id TEXT NOT NULL,body TEXT NOT NULL,read_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(receiver_id) REFERENCES users(id) ON DELETE CASCADE)`,
+    `CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id,created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id,receiver_id,created_at)`,
     `CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,title TEXT NOT NULL,description TEXT,start_at TEXT NOT NULL,end_at TEXT,type TEXT DEFAULT 'study',created_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`,
     `CREATE INDEX IF NOT EXISTS idx_calendar_user_date ON calendar_events(user_id,start_at)`,
     `CREATE TABLE IF NOT EXISTS coaching_plans (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,coach_id TEXT,goal TEXT NOT NULL,status TEXT DEFAULT 'active',notes TEXT,next_review_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(coach_id) REFERENCES users(id) ON DELETE SET NULL)`,
     `CREATE TABLE IF NOT EXISTS evaluations (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,teacher_id TEXT,title TEXT NOT NULL,score REAL,feedback TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE SET NULL)`,
     `CREATE TABLE IF NOT EXISTS progress_entries (id TEXT PRIMARY KEY,student_id TEXT NOT NULL,metric TEXT NOT NULL,value REAL NOT NULL,target REAL,period TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(student_id) REFERENCES users(id) ON DELETE CASCADE)`,
+    `CREATE INDEX IF NOT EXISTS idx_progress_student ON progress_entries(student_id,created_at)`,
     `CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT,url TEXT NOT NULL,subject TEXT,teacher_id TEXT,is_active INTEGER DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE SET NULL)`,
     `CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT PRIMARY KEY,theme TEXT DEFAULT 'dark',notifications INTEGER DEFAULT 1,language TEXT DEFAULT 'tr',updated_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`,
-    `CREATE TABLE IF NOT EXISTS announcements (id TEXT PRIMARY KEY,title TEXT NOT NULL,body TEXT NOT NULL,created_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL)`,
-    `CREATE INDEX IF NOT EXISTS idx_progress_student ON progress_entries(student_id,created_at)`,
-    `CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id,receiver_id,created_at)`
+    `CREATE TABLE IF NOT EXISTS announcements (id TEXT PRIMARY KEY,title TEXT NOT NULL,body TEXT NOT NULL,created_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL)`
   ]
   for (const sql of statements) await db.prepare(sql).run()
 }
@@ -152,19 +154,12 @@ export async function onRequest(context){
     if(context.request.method==='POST'){
       const result=await createResource(db,user,resource,body)
       if(!result) return json({ok:false,error:'Bu işlem için yetkiniz yok veya eksik bilgi var.'},403)
-      await db.prepare('INSERT INTO audit_logs(id,user_id,action,target_id,metadata) VALUES(?,?,?,?,?)').bind(randomId(),user.id,`create_${resource}`,result.id,JSON.stringify({title:body.title||body.goal||body.metric||''})).run().catch(()=>{})
+      await db.prepare('INSERT INTO audit_logs(id,user_id,action,target_id,metadata,created_at) VALUES(?,?,?,?,?,?)').bind(randomId(),user.id,`create_${resource}`,result.id,JSON.stringify(body),now()).run()
       return json({ok:true,...result},201)
     }
-    if(context.request.method==='PATCH'){
-      if(resource==='settings'){
-        await db.prepare(`INSERT INTO user_settings(user_id,theme,notifications,language,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme,notifications=excluded.notifications,language=excluded.language,updated_at=excluded.updated_at`).bind(user.id,body.theme||'dark',body.notifications?1:0,body.language||'tr',now()).run(); return json({ok:true})
-      }
-      if(resource==='messages' && body.id){ await db.prepare('UPDATE messages SET read_at=? WHERE id=? AND receiver_id=?').bind(now(),body.id,user.id).run(); return json({ok:true}) }
-      if(resource==='assignments' && body.id && user.role==='student'){ await db.prepare('UPDATE assignment_students SET status=?,submitted_at=? WHERE assignment_id=? AND student_id=?').bind(body.status||'submitted',now(),body.id,user.id).run(); return json({ok:true}) }
-      if(resource==='coaching' && body.id && ['admin','teacher'].includes(user.role)){ await db.prepare('UPDATE coaching_plans SET status=?,notes=?,updated_at=? WHERE id=?').bind(body.status||'active',safe(body.notes),now(),body.id).run(); return json({ok:true}) }
-      return json({ok:false,error:'Güncelleme desteklenmiyor.'},400)
-    }
-    if(context.request.method==='DELETE') return json({ok:false,error:'Silme işlemi bu modülde yalnızca yönetim panelinden yapılır.'},405)
     return json({ok:false,error:'Method desteklenmiyor.'},405)
-  }catch(e){ console.error('app api',e); return json({ok:false,error:e?.message||'Sunucu hatası.'},500) }
+  }catch(error){
+    console.error('APP_ERROR',error)
+    return json({ok:false,error:error?.message||'Beklenmeyen sunucu hatası.'},500)
+  }
 }
