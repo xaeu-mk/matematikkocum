@@ -139,7 +139,6 @@ async function createResource(db,user,resource,body){
 export async function onRequest(context){
   const {db,user,error}=await session(context); if(error) return error
   try{
-    await ensureSchema(db)
     const url=new URL(context.request.url), resource=url.searchParams.get('resource')||'dashboard'
     if(context.request.method==='GET'){
       if(resource==='dashboard') return json({ok:true,user,data:await dashboard(db,user)})
