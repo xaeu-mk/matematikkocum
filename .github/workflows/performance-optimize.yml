@@ -1,0 +1,41 @@
+name: Performance optimize
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Remove per-request D1 schema setup
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('functions/api/app.js')
+          s = p.read_text()
+          s = s.replace("    await ensureSchema(db)\n", "")
+          p.write_text(s)
+          PY
+
+      - name: Commit optimization
+        shell: bash
+        run: |
+          if git diff --quiet -- functions/api/app.js; then
+            echo "No optimization changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add functions/api/app.js
+          git commit -m "perf: avoid D1 schema checks on every request"
+          git push
