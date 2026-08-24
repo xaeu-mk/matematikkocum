@@ -40,7 +40,7 @@ const empty = (title, text) => `<div class="workspace-empty"><div class="empty-i
 const date = v => v ? new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(v)) : ''
 
 export const renderWorkspace = async (app, user, onLogout) => {
-  app.innerHTML = `<div class="workspace"><aside class="workspace-sidebar"><div class="workspace-brand"><span class="brand-mark">M</span><div><strong>Matematik Koçum</strong><small>Eğitim Yönetim Sistemi</small></div></div><div class="workspace-role"><span class="role-dot"></span>${roles[user.role] || 'Kullanıcı'}</div><nav>${nav(user.role)}</nav><div class="workspace-side-bottom"><button class="workspace-nav" data-page="settings">${icon('settings', 20)}<span>Ayarlar</span></button><button class="logout-button" id="workspaceLogout">${icon('logout', 18)} Güvenli Çıkış</button></div></aside><section class="workspace-main"><header class="workspace-header"><button class="mobile-menu" id="mobileMenu">${icon('menu', 22)}</button><div class="header-title"><span class="eyebrow">${roles[user.role] || 'PANEL'}</span><h1 id="workspaceTitle">Genel Bakış</h1></div><div class="workspace-header-actions"><button class="header-icon" id="globalTheme">${icon('sun', 20)}</button><button class="header-icon" id="globalRefresh">${icon('refresh', 20)}</button><div class="profile-chip"><div class="profile-avatar">${esc((user.fullName || user.username).slice(0, 1).toUpperCase())}</div><div><strong>${esc(user.fullName || user.username)}</strong><small>@${esc(user.username)}</small></div></div></div></header><main id="workspaceContent" class="workspace-content"></main></section></div>`
+  app.innerHTML = `<div class="workspace"><aside class="workspace-sidebar" id="workspaceSidebar"><div class="workspace-brand"><span class="brand-mark">M</span><div><strong>Matematik Koçum</strong><small>Eğitim Yönetim Sistemi</small></div></div><div class="workspace-role"><span class="role-dot"></span>${roles[user.role] || 'Kullanıcı'}</div><nav>${nav(user.role)}</nav><div class="workspace-side-bottom"><button class="workspace-nav" data-page="settings">${icon('settings', 20)}<span>Ayarlar</span></button><button class="logout-button" id="workspaceLogout">${icon('logout', 18)} <span>Güvenli Çıkış</span></button><button class="sidebar-collapse-btn" id="sidebarCollapse" aria-label="Menüyü daralt" title="Daralt">${icon('panelLeft', 18)}</button></div></aside><section class="workspace-main"><header class="workspace-header"><button class="mobile-menu" id="mobileMenu">${icon('menu', 22)}</button><div class="header-title"><span class="eyebrow">${roles[user.role] || 'PANEL'}</span><h1 id="workspaceTitle">Genel Bakış</h1></div><div class="workspace-header-actions"><button class="header-icon" id="globalTheme">${icon('sun', 20)}</button><button class="header-icon" id="globalRefresh">${icon('refresh', 20)}</button><div class="profile-chip"><div class="profile-avatar">${esc((user.fullName || user.username).slice(0, 1).toUpperCase())}</div><div><strong>${esc(user.fullName || user.username)}</strong><small>@${esc(user.username)}</small></div></div></div></header><main id="workspaceContent" class="workspace-content"></main></section></div>`
 
   const content = app.querySelector('#workspaceContent')
   let current = 'dashboard'
@@ -69,10 +69,13 @@ export const renderWorkspace = async (app, user, onLogout) => {
   const card = (title, body) => `<section class="surface-card"><div class="surface-head"><h3>${title}</h3></div>${body}</section>`
   const stat = (l, v, m, i) => `<div class="metric-card"><div class="metric-icon">${icon(i, 20)}</div><span>${l}</span><strong>${v ?? 0}</strong><small>${m}</small></div>`
 
+  const hub = (id, title, iconName, summary, content_html, open = false) => `<section class="hub-panel${open ? ' open' : ''}" data-hub="${id}"><button class="hub-header" data-hub-toggle="${id}" aria-expanded="${open}" aria-controls="hub-body-${id}"><span class="hub-icon">${icon(iconName, 20)}</span><span class="hub-title"><strong>${title}</strong><small>${summary}</small></span><span class="hub-chevron">${icon('chevronDown', 18)}</span></button><div class="hub-body" id="hub-body-${id}"><div class="hub-body-inner">${content_html}</div></div></section>`
+
   const dashboard = async () => {
     const d = (await get('dashboard', 2000)).data || {}
     const s = d.stats || {}
-    content.innerHTML = heading('KONTROL MERKEZİ', `Hoş geldin, ${esc(user.fullName || user.username)}.`, 'Bugünkü eğitim yolculuğunun tamamı burada.') + `<div class="metric-grid">${stat('Dersler', s.courses, 'Aktif içerikler', 'book')}${stat('Ödevler', s.assignments, 'Takip edilen', 'check')}${stat('Sınavlar', s.exams, 'Ölçme kayıtları', 'clipboard')}${stat('Mesajlar', s.messages, `${s.unreadMessages || 0} okunmamış`, 'mail')}</div><div class="workspace-grid wide-left">${card('Bugünkü plan', d.events?.length ? `<div class="timeline">${d.events.slice(0, 6).map(e => `<div class="timeline-row"><span>${new Date(e.start_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span><div><b>${esc(e.title)}</b><small>${esc(e.description || e.type || 'Plan')}</small></div></div>`).join('')}</div>` : empty('Bugün için plan yok', 'Takvimden yeni bir çalışma veya ders planlayabilirsin.'))}${card('Hızlı erişim', `<div class="quick-actions"><button data-page="calendar">${icon('calendar', 20)}<b>Takvim</b><small>Gününü planla</small></button><button data-page="assignments">${icon('check', 20)}<b>Ödevler</b><small>Çalışmalarını takip et</small></button><button data-page="progress">${icon('trending', 20)}<b>Gelişim</b><small>Performansını incele</small></button><button data-page="messages">${icon('mail', 20)}<b>Mesajlar</b><small>İletişime geç</small></button></div>`)}</div>`
+    const eventsHtml = d.events?.length ? `<div class="timeline">${d.events.slice(0, 6).map(e => `<div class="timeline-row"><span>${new Date(e.start_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span><div><b>${esc(e.title)}</b><small>${esc(e.description || e.type || 'Plan')}</small></div></div>`).join('')}</div>` : empty('Bugün için plan yok', 'Takvimden yeni bir çalışma veya ders planlayabilirsin.')
+    content.innerHTML = heading('KONTROL MERKEZİ', `Hoş geldin, ${esc(user.fullName || user.username)}.`, 'Bugünkü eğitim yolculuğunun tamamı burada.') + `<div class="metric-grid">${stat('Dersler', s.courses, 'Aktif içerikler', 'book')}${stat('Ödevler', s.assignments, 'Takip edilen', 'check')}${stat('Sınavlar', s.exams, 'Ölçme kayıtları', 'clipboard')}${stat('Mesajlar', s.messages, `${s.unreadMessages || 0} okunmamış`, 'mail')}</div><div class="hub-container"><div class="hub-main">${hub('today-plan', 'Bugünkü Plan', 'calendar', `${d.events?.length || 0} etkinlik`, eventsHtml, true)}${hub('quick-access', 'Hızlı Erişim', 'grid', 'Kısayollar', `<div class="quick-actions"><button data-page="calendar">${icon('calendar', 20)}<b>Takvim</b><small>Gününü planla</small></button><button data-page="assignments">${icon('check', 20)}<b>Ödevler</b><small>Çalışmalarını takip et</small></button><button data-page="progress">${icon('trending', 20)}<b>Gelişim</b><small>Performansını incele</small></button><button data-page="messages">${icon('mail', 20)}<b>Mesajlar</b><small>İletişime geç</small></button></div>`, false)}</div><div class="hub-side">${hub('goals', 'Hedefler', 'target', 'Koçluk planları', d.goals?.length ? d.goals.slice(0, 4).map(g => `<div class="data-row"><div><b>${esc(g.goal || 'Hedef')}</b><small>${esc(g.status || 'Aktif')}</small></div><span class="status-badge ${g.status || 'active'}">${esc(g.status || 'Aktif')}</span></div>`).join('') : empty('Hedef yok', 'Henüz koçluk planı eklenmemiş.'), false)}${hub('progress', 'İlerleme', 'trending', 'Gelişim kayıtları', d.progress?.length ? d.progress.slice(0, 6).map(p => `<div class="data-row"><div><b>${esc(p.metric)}</b><small>${esc(p.period || '')} · ${p.value || 0}${p.target ? '/' + p.target : ''}</small></div></div>`).join('') : empty('Kayıt yok', 'İlerleme verisi henüz yok.'), false)}${hub('activity', 'Son Aktiviteler', 'activity', 'Sistem hareketleri', d.activity?.length ? d.activity.slice(0, 6).map(a => `<div class="data-row"><div><b>${esc(a.action)}</b><small>${esc(a.full_name || a.username || 'Sistem')}</small></div></div>`).join('') : empty('Aktivite yok', 'Sistem hareketleri burada görünecek.'), false)}</div></div>`
   }
 
   const calendar = async () => {
@@ -140,6 +143,13 @@ export const renderWorkspace = async (app, user, onLogout) => {
     const n = e.target.closest('[data-page]')
     if (n) { await show(n.dataset.page); return }
     if (e.target.closest('[data-retry]')) { await show(current); return }
+    const hubToggle = e.target.closest('[data-hub-toggle]')
+    if (hubToggle) {
+      const panel = hubToggle.closest('.hub-panel')
+      const isOpen = panel.classList.toggle('open')
+      hubToggle.setAttribute('aria-expanded', isOpen)
+      return
+    }
     if (e.target.closest('[data-cal-prev]')) { calDate = new Date(calDate.getFullYear(), calDate.getMonth() - 1, 1); await show('calendar'); return }
     if (e.target.closest('[data-cal-next]')) { calDate = new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1); await show('calendar'); return }
     if (e.target.closest('[data-cal-today]')) { calDate = new Date(); selectedDate = new Date(); await show('calendar'); return }
@@ -154,5 +164,16 @@ export const renderWorkspace = async (app, user, onLogout) => {
     localStorage.setItem('mk_theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light')
   })
   app.querySelector('#mobileMenu').addEventListener('click', () => app.querySelector('.workspace-sidebar').classList.toggle('open'))
+  const sidebar = app.querySelector('#workspaceSidebar')
+  const collapseBtn = app.querySelector('#sidebarCollapse')
+  if (collapseBtn) {
+    if (localStorage.getItem('mk_sidebar') === 'collapsed') sidebar.classList.add('collapsed')
+    collapseBtn.addEventListener('click', () => {
+      const isCollapsed = sidebar.classList.toggle('collapsed')
+      localStorage.setItem('mk_sidebar', isCollapsed ? 'collapsed' : 'expanded')
+      collapseBtn.setAttribute('aria-label', isCollapsed ? 'Menüyü genişlet' : 'Menüyü daralt')
+      collapseBtn.title = isCollapsed ? 'Genişlet' : 'Daralt'
+    })
+  }
   show('dashboard')
 }
