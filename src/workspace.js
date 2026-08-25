@@ -99,26 +99,104 @@ export const renderWorkspace = async (app, user, onLogout) => {
     content.innerHTML = heading('KONTROL MERKEZİ', `Hoş geldin, ${esc(user.fullName || user.username)}.`, 'Bugünkü eğitim yolculuğunun tamamı burada.') + `<div class="metric-grid">${stat('Dersler', s.courses, 'Aktif içerikler', 'book')}${stat('Ödevler', s.assignments, 'Takip edilen', 'check')}${stat('Sınavlar', s.exams, 'Ölçme kayıtları', 'clipboard')}${stat('Mesajlar', s.messages, `${s.unreadMessages || 0} okunmamış`, 'mail')}</div><div class="hub-container"><div class="hub-main">${hub('today-plan', 'Bugünkü Plan', 'calendar', `${d.events?.length || 0} etkinlik`, eventsHtml, true)}${hub('quick-access', 'Hızlı Erişim', 'grid', 'Kısayollar', `<div class="quick-actions"><button data-page="calendar">${icon('calendar', 20)}<b>Takvim</b><small>Gününü planla</small></button><button data-page="assignments">${icon('check', 20)}<b>Ödevler</b><small>Çalışmalarını takip et</small></button><button data-page="progress">${icon('trending', 20)}<b>Gelişim</b><small>Performansını incele</small></button><button data-page="messages">${icon('mail', 20)}<b>Mesajlar</b><small>İletişime geç</small></button></div>`, false)}</div><div class="hub-side">${hub('goals', 'Hedefler', 'target', 'Koçluk planları', d.goals?.length ? d.goals.slice(0, 4).map(g => `<div class="data-row"><div><b>${esc(g.goal || 'Hedef')}</b><small>${esc(g.status || 'Aktif')}</small></div><span class="status-badge ${g.status || 'active'}">${esc(g.status || 'Aktif')}</span></div>`).join('') : empty('Hedef yok', 'Henüz koçluk planı eklenmemiş.'), false)}${hub('progress', 'İlerleme', 'trending', 'Gelişim kayıtları', d.progress?.length ? d.progress.slice(0, 6).map(p => `<div class="data-row"><div><b>${esc(p.metric)}</b><small>${esc(p.period || '')} · ${p.value || 0}${p.target ? '/' + p.target : ''}</small></div></div>`).join('') : empty('Kayıt yok', 'İlerleme verisi henüz yok.'), false)}${hub('activity', 'Son Aktiviteler', 'activity', 'Sistem hareketleri', d.activity?.length ? d.activity.slice(0, 6).map(a => `<div class="data-row"><div><b>${esc(a.action)}</b><small>${esc(a.full_name || a.username || 'Sistem')}</small></div></div>`).join('') : empty('Aktivite yok', 'Sistem hareketleri burada görünecek.'), false)}</div></div>`
   }
 
+  let calTeacherId = user.role === 'teacher' ? user.id : null
+  let calTeachers = []
+  let calEvents = []
+  let calBlocks = []
+  let calRole = user.role
+
+  const HOURS = Array.from({ length: 16 }, (_, i) => i + 8)
+  const SLOT_STATUSES = { open: { label: 'Açık', cls: 'open', color: 'var(--success)' }, busy: { label: 'Dolu', cls: 'busy', color: 'var(--primary)' }, closed: { label: 'Kapalı', cls: 'closed', color: 'var(--danger)' }, past: { label: 'Geçmiş', cls: 'past', color: 'var(--text-muted)' } }
+
+  const calApi = async (action, params = {}, method = 'GET') => {
+    const url = `/api/calendar?action=${action}` + (method === 'GET' ? '&' + new URLSearchParams(params).toString() : '')
+    const opts = method === 'GET' ? { credentials: 'same-origin' } : { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }
+    const r = await fetch(url, opts)
+    const d = await r.json()
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Takvim hatası.')
+    return d
+  }
+
+  const timeToMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0) }
+  const overlap = (aS, aE, bS, bE) => aS < bE && bS < aE
+  const todayStr = () => new Date().toISOString().slice(0, 10)
+  const isPastSlot = (ds, hour) => { const dt = new Date(ds + 'T' + hour + ':00'); return dt < new Date() }
+
+  const slotStatus = (ds, hour, events, blocks) => {
+    const slotStart = timeToMin(hour)
+    const slotEnd = slotStart + 60
+    if (ds < todayStr()) return 'past'
+    if (ds === todayStr() && slotEnd <= timeToMin(new Date().toTimeString().slice(0, 5))) return 'past'
+    for (const e of events) { const eD = (e.start_at || '').slice(0, 10); if (eD !== ds) continue; const eS = timeToMin((e.start_at || '').slice(11, 16)); const eE = timeToMin((e.end_at || '').slice(11, 16)); if (overlap(slotStart, slotEnd, eS, eE)) return 'busy' }
+    for (const b of blocks) { if (b.date !== ds) continue; const bS = timeToMin(b.start_time); const bE = timeToMin(b.end_time); if (overlap(slotStart, slotEnd, bS, bE)) return 'closed' }
+    return 'open'
+  }
+
+  const daySummary = (ds, events, blocks) => {
+    let busy = 0, closed = 0, past = 0
+    for (const h of HOURS) { const s = slotStatus(ds, h + ':00', events, blocks); if (s === 'busy') busy++; else if (s === 'closed') closed++; else if (s === 'past') past++ }
+    return { lessons: busy, closed, open: Math.max(0, HOURS.length - busy - closed - past) }
+  }
+
   const calendar = async () => {
-    let d
-    try { d = await get('calendar', 10000) } catch { d = { items: [] } }
-    const items = d.items || d.data?.items || []
     const y = calDate.getFullYear(), m = calDate.getMonth()
-    const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate()
-    const offset = (first.getDay() + 6) % 7
+    const firstDay = new Date(y, m, 1), daysInMonth = new Date(y, m + 1, 0).getDate()
+    const offset = (firstDay.getDay() + 6) % 7
+    const monthStart = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const monthEnd = `${y}-${String(m + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
     const sel = selectedDate.toISOString().slice(0, 10)
+
+    try {
+      const d = await calApi('view', { start: monthStart, end: monthEnd, teacherId: calTeacherId })
+      calEvents = d.events || []
+      calBlocks = d.blocks || []
+      calTeachers = d.teachers || []
+      calTeacherId = d.teacherId || calTeacherId
+      calRole = d.role || user.role
+    } catch (e) { calEvents = []; calBlocks = [] }
+
+    const canManage = calRole === 'admin' || calRole === 'teacher'
     const byDay = {}
-    items.forEach(x => { const k = (x.start_at || x.lesson_date || x.date || '').slice(0, 10); (byDay[k] ??= []).push(x) })
+    calEvents.forEach(e => { const k = (e.start_at || '').slice(0, 10); (byDay[k] ??= []).push(e) })
+    const blocksByDay = {}
+    calBlocks.forEach(b => { (blocksByDay[b.date] ??= []).push(b) })
+
     const cells = []
     for (let i = 0; i < offset; i++) cells.push('<div class="calendar-cell empty"></div>')
-    for (let day = 1; day <= days; day++) {
-      const k = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      const events = byDay[k] || []
-      cells.push(`<button class="calendar-cell ${k === sel ? 'selected' : ''}" data-cal-date="${k}"><span>${day}</span>${events.slice(0, 3).map(() => '<i></i>').join('')}</button>`)
+    for (let day = 1; day <= daysInMonth; day++) {
+      const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const summary = daySummary(ds, calEvents, calBlocks)
+      const isPast = ds < todayStr()
+      cells.push(`<button class="calendar-cell ${ds === sel ? 'selected' : ''} ${isPast ? 'past-day' : ''}" data-cal-date="${ds}" ${isPast ? 'disabled' : ''} aria-label="${day} ${new Intl.DateTimeFormat('tr-TR', { month: 'long' }).format(calDate)}"><span class="cal-day-num">${day}</span>${summary.lessons > 0 ? `<i class="cal-dot busy"></i>` : ''}${summary.closed > 0 && summary.lessons === 0 ? `<i class="cal-dot closed"></i>` : ''}${canManage && !isPast ? `<div class="cal-cell-stats"><span>${summary.lessons} ders</span><span>${summary.open} açık</span>${summary.closed > 0 ? `<span>${summary.closed} kapalı</span>` : ''}</div>` : `<div class="cal-cell-stats"><span>${summary.lessons} ders</span></div>`}</button>`)
     }
-    const selected = byDay[sel] || []
-    const canAdd = user.role === 'admin' || user.role === 'teacher'
-    content.innerHTML = heading('PLANLAMA', 'Takvim', 'Ders saatlerini, çalışma planlarını ve günlük uygunluğu tek ekrandan yönetin.', canAdd ? `<button class="button button-primary" data-add="calendar">${icon('plus', 18)} Plan Ekle</button>` : '') + `<div class="calendar-toolbar-modern"><button data-cal-prev>${icon('chevronLeft', 20)}</button><strong>${new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(calDate)}</strong><button data-cal-next>${icon('chevronRight', 20)}</button><button data-cal-today class="button button-secondary">Bugün</button></div><div class="calendar-layout-modern"><section class="surface-card monthly-panel"><div class="calendar-panel-head"><div><h3>Aylık takvim</h3><p>Geçmiş günler görüntülenebilir, yeni planlar yetkiye göre eklenir.</p></div><div class="calendar-legend"><span><i class="dot open-dot"></i>Plan</span></div></div><div class="weekday-row">${['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map(x => `<span>${x}</span>`).join('')}</div><div class="month-grid">${cells.join('')}</div></section><aside class="surface-card day-panel"><div class="day-panel-head"><div><h3>${new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: '2-digit', month: 'long' }).format(selectedDate)}</h3><p>Günün programı</p></div></div>${selected.length ? selected.map(e => `<div class="calendar-event-row"><b>${esc(e.title || e.name || 'Plan')}</b><span>${date(e.start_at || e.lesson_date || e.date)}</span><small>${esc(e.description || e.type || '')}</small></div>`).join('') : empty('Plan yok', 'Bu gün için kayıt bulunmuyor.')}</aside></div>`
+
+    const selectedEvents = byDay[sel] || []
+    const selectedBlocks = blocksByDay[sel] || []
+    const slotsHtml = HOURS.map(h => {
+      const hour = h + ':00'
+      const status = slotStatus(sel, hour, calEvents, calBlocks)
+      const st = SLOT_STATUSES[status]
+      const event = calEvents.find(e => { const eD = (e.start_at || '').slice(0, 10); if (eD !== sel) return false; const eS = timeToMin((e.start_at || '').slice(11, 16)); const eE = timeToMin((e.end_at || '').slice(11, 16)); return overlap(timeToMin(hour), timeToMin(hour) + 60, eS, eE) })
+      let action = ''
+      if (status === 'open' && canManage) action = `<button class="slot-action" data-slot-book="${hour}">Ders Planla</button>`
+      else if (status === 'open' && !canManage) action = `<span class="slot-avail">Müsait</span>`
+      else if (status === 'busy' && canManage) action = `<button class="slot-action danger" data-slot-delete="${event?.id || ''}">Sil</button>`
+      else if (status === 'closed' && canManage) action = `<button class="slot-action" data-slot-unblock="${hour}">Aç</button>`
+      else if (status === 'closed' && !canManage) action = `<span class="slot-closed-label">Kapalı</span>`
+      else if (status === 'past') action = `<span class="slot-past-label">Geçmiş</span>`
+      return `<div class="cal-slot ${st.cls}" data-hour="${hour}"><span class="slot-time">${h.toString().padStart(2, '0')}:00</span><span class="slot-status ${st.cls}">${st.label}</span>${event ? `<span class="slot-event">${esc(event.title)}</span>` : ''}${action}</div>`
+    }).join('')
+
+    const teacherSelect = calRole === 'admin' && calTeachers.length ? `<select id="calTeacherSelect" class="cal-teacher-select">${calTeachers.map(t => `<option value="${t.id}" ${t.id === calTeacherId ? 'selected' : ''}>${esc(t.full_name)}</option>`).join('')}</select>` : ''
+    const dayToggleBtn = canManage ? `<button class="button button-secondary cal-day-toggle" data-day-toggle="${sel}">${selectedBlocks.length > HOURS.length / 2 ? icon('unlock', 16) + ' Günü Aç' : icon('lock', 16) + ' Günü Kapat'}</button>` : ''
+    const bulkBtn = canManage ? `<button class="button button-secondary" data-bulk-open>${icon('grid', 16)} Toplu İşlem</button>` : ''
+
+    content.innerHTML = heading('PLANLAMA', 'Takvim', 'Ders saatlerini, çalışma planlarını ve müsaitlik durumunu tek ekrandan yönetin.', canManage ? `<button class="button button-primary" data-lesson-open>${icon('calendarPlus', 18)} Ders Planla</button>` : '') + `<div class="calendar-toolbar-modern">${teacherSelect}<button data-cal-prev>${icon('chevronLeft', 20)}</button><strong>${new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(calDate)}</strong><button data-cal-next>${icon('chevronRight', 20)}</button><button data-cal-today class="button button-secondary">Bugün</button></div><div class="calendar-layout-modern"><section class="surface-card monthly-panel"><div class="calendar-panel-head"><div><h3>Aylık takvim</h3><p>${canManage ? 'Dersleri ve saatleri yönet' : 'Ders programını görüntüle'}</p></div><div class="calendar-legend"><span><i class="dot busy-dot"></i>Ders</span><span><i class="dot closed-dot"></i>Kapalı</span><span><i class="dot open-dot"></i>Açık</span></div></div><div class="weekday-row">${['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map(x => `<span>${x}</span>`).join('')}</div><div class="month-grid">${cells.join('')}</div></section><aside class="surface-card day-panel"><div class="day-panel-head"><div><h3>${new Intl.DateTimeFormat('tr-TR', { weekday: 'long', day: '2-digit', month: 'long' }).format(selectedDate)}</h3><p>Saatlik program</p></div><div class="day-actions">${dayToggleBtn} ${bulkBtn}</div></div><div class="cal-slots">${slotsHtml}</div></aside></div>`
+
+    if (calRole === 'admin') {
+      const sel2 = content.querySelector('#calTeacherSelect')
+      if (sel2) sel2.addEventListener('change', () => { calTeacherId = sel2.value; show('calendar') })
+    }
   }
 
   const listPage = async (resource, ey, title, text, label = '') => {
@@ -203,7 +281,19 @@ export const renderWorkspace = async (app, user, onLogout) => {
     if (e.target.closest('[data-cal-next]')) { calDate = new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1); await show('calendar'); return }
     if (e.target.closest('[data-cal-today]')) { calDate = new Date(); selectedDate = new Date(); await show('calendar'); return }
     const day = e.target.closest('[data-cal-date]')
-    if (day) { selectedDate = new Date(day.dataset.calDate + 'T12:00:00'); await show('calendar'); return }
+    if (day && !day.disabled) { selectedDate = new Date(day.dataset.calDate + 'T12:00:00'); await show('calendar'); return }
+    const slotBook = e.target.closest('[data-slot-book]')
+    if (slotBook) { openLessonModal(slotBook.dataset.slotBook); return }
+    const slotDelete = e.target.closest('[data-slot-delete]')
+    if (slotDelete && slotDelete.dataset.slotDelete) { await deleteEvent(slotDelete.dataset.slotDelete); return }
+    const slotUnblock = e.target.closest('[data-slot-unblock]')
+    if (slotUnblock) { await toggleSlot(slotUnblock.dataset.slotUnblock); return }
+    const dayToggle = e.target.closest('[data-day-toggle]')
+    if (dayToggle) { await toggleDay(dayToggle.dataset.dayToggle); return }
+    const bulkOpen = e.target.closest('[data-bulk-open]')
+    if (bulkOpen) { openBulkModal(); return }
+    const lessonOpen = e.target.closest('[data-lesson-open]')
+    if (lessonOpen) { openLessonModal(); return }
   })
 
   app.querySelector('#workspaceLogout').addEventListener('click', async () => { await onLogout(); location.reload() })
@@ -224,5 +314,62 @@ export const renderWorkspace = async (app, user, onLogout) => {
       collapseBtn.title = isCollapsed ? 'Genişlet' : 'Daralt'
     })
   }
+  const openLessonModal = (presetHour) => {
+    const ds = selectedDate.toISOString().slice(0, 10)
+    const startHour = presetHour || '09:00'
+    const endHour = String(Number(startHour.split(':')[0]) + 1).padStart(2, '0') + ':00'
+    const html = modalShell('DERS PLANLAMA', 'Ders Planla', 'Açık saate yeni ders ekle.', modalField('title', 'Ders adı', 'text', { placeholder: 'Örn: Matematik — Türev' }) + `<label>Tarih<input name="date" type="date" required value="${ds}"></label>` + `<label>Başlangıç<select name="startTime" required>${HOURS.map(h => `<option value="${h}:00" ${h + ':00' === startHour ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></label>` + `<label>Bitiş<select name="endTime" required>${HOURS.map(h => `<option value="${h}:00" ${h + ':00' === endHour ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></label>` + modalField('description', 'Açıklama', 'textarea', { required: false, placeholder: 'Ders içeriği' }))
+    modalHost.innerHTML = html
+    document.body.style.overflow = 'hidden'
+    const form = modalHost.querySelector('#wsModalForm')
+    const msg = modalHost.querySelector('#wsModalMsg')
+    const close = () => { modalHost.innerHTML = ''; document.body.style.overflow = '' }
+    modalHost.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', close))
+    form.addEventListener('submit', async e => {
+      e.preventDefault()
+      const data = Object.fromEntries(new FormData(e.currentTarget).entries())
+      if (calTeacherId) data.teacherId = calTeacherId
+      msg.textContent = 'Kaydediliyor…'
+      try { await calApi('create-event', data, 'POST'); close(); await show('calendar') } catch (err) { msg.textContent = err.message }
+    })
+    form.querySelector('input')?.focus()
+  }
+
+  const deleteEvent = async (id) => {
+    if (!confirm('Bu dersi silmek istediğine emin misin?')) return
+    try { await calApi('delete-event', { id }, 'POST'); await show('calendar') } catch (err) { alert(err.message) }
+  }
+
+  const toggleSlot = async (hour) => {
+    const ds = selectedDate.toISOString().slice(0, 10)
+    try { await calApi('toggle-slot', { date: ds, hour, teacherId: calTeacherId }, 'POST'); await show('calendar') } catch (err) { alert(err.message) }
+  }
+
+  const toggleDay = async (ds) => {
+    try { const r = await calApi('toggle-day', { date: ds, teacherId: calTeacherId }, 'POST'); alert(r.action === 'closed' ? `${r.closedCount} saat kapatıldı.${r.skipped ? ' ' + r.skipped + ' saat ders nedeniyle atlandı.' : ''}` : `${r.closedCount} saat açıldı.${r.skipped ? ' ' + r.skipped + ' saat ders nedeniyle değiştirilemedi.' : ''}`); await show('calendar') } catch (err) { alert(err.message) }
+  }
+
+  const openBulkModal = () => {
+    const ds = selectedDate.toISOString().slice(0, 10)
+    const dsEnd = ds
+    const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi']
+    const dayOpts = days.map((d, i) => `<label class="bulk-day"><input type="checkbox" name="days" value="${i}" ${i >= 1 && i <= 5 ? 'checked' : ''}> ${d}</label>`).join('')
+    const html = modalShell('TOPLU İŞLEM', 'Toplu Saat İşlemi', 'Tarih aralığında saatleri toplu aç veya kapat.', `<label>Başlangıç tarihi<input name="startDate" type="date" required value="${ds}"></label><label>Bitiş tarihi<input name="endDate" type="date" required value="${dsEnd}"></label><label>Başlangıç saati<select name="startTime">${HOURS.map(h => `<option value="${h}:00" ${h === 8 ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></label><label>Bitiş saati<select name="endTime">${HOURS.map(h => `<option value="${h}:00" ${h === 18 ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></label><div class="wide bulk-days">${dayOpts}</div><label class="wide">İşlem<select name="action"><option value="block">Kapat</option><option value="open">Aç</option></select></label>` + modalField('reason', 'Açıklama', 'text', { required: false, placeholder: 'İsteğe bağlı' }))
+    modalHost.innerHTML = html
+    document.body.style.overflow = 'hidden'
+    const form = modalHost.querySelector('#wsModalForm')
+    const msg = modalHost.querySelector('#wsModalMsg')
+    const close = () => { modalHost.innerHTML = ''; document.body.style.overflow = '' }
+    modalHost.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', close))
+    form.addEventListener('submit', async e => {
+      e.preventDefault()
+      const fd = new FormData(e.currentTarget)
+      const data = { startDate: fd.get('startDate'), endDate: fd.get('endDate'), startTime: fd.get('startTime'), endTime: fd.get('endTime'), action: fd.get('action'), reason: fd.get('reason') || '', daysOfWeek: fd.getAll('days').map(Number), teacherId: calTeacherId }
+      msg.textContent = 'İşleniyor…'
+      try { const r = await calApi('bulk-operation', data, 'POST'); alert(r.action === 'block' ? `${r.processed} saat kapatıldı.${r.skipped ? ' ' + r.skipped + ' saat ders nedeniyle atlandı.' : ''}` : `${r.processed} saat açıldı.${r.skipped ? ' ' + r.skipped + ' saat ders nedeniyle değiştirilemedi.' : ''}`); close(); await show('calendar') } catch (err) { msg.textContent = err.message }
+    })
+    form.querySelector('input')?.focus()
+  }
+
   show('dashboard')
 }

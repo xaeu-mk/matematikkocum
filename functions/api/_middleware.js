@@ -17,6 +17,8 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS videos (id TEXT PRIMARY KEY,title TEXT NOT NULL,description TEXT,url TEXT NOT NULL,subject TEXT,teacher_id TEXT,is_active INTEGER DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE SET NULL)`,
   `CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT PRIMARY KEY,theme TEXT DEFAULT 'dark',notifications INTEGER DEFAULT 1,language TEXT DEFAULT 'tr',updated_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`,
   `CREATE TABLE IF NOT EXISTS announcements (id TEXT PRIMARY KEY,title TEXT NOT NULL,body TEXT NOT NULL,created_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL)`,
+  `CREATE TABLE IF NOT EXISTS calendar_blocks (id TEXT PRIMARY KEY,teacher_id TEXT NOT NULL,date TEXT NOT NULL,start_time TEXT NOT NULL,end_time TEXT NOT NULL,reason TEXT,created_by TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(teacher_id) REFERENCES users(id) ON DELETE CASCADE)`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_blocks_teacher ON calendar_blocks(teacher_id,date)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id,created_at)`,
