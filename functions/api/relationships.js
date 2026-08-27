@@ -45,12 +45,14 @@ export async function onRequest(context){
    if(action==='list')return json({ok:true,...await listPeople(db,user,q)})
    if(action==='tree'){
     if(user.role!=='admin')return json({ok:false,error:'Yetkiniz yok.'},403)
-    const data=await listPeople(db,user,q)
-    const byStudent=new Map(data.students.map(s=>[s.id,{...s,parents:[]}]))
-    data.parents.forEach(p=>byStudent.get(p.student_id)?.parents.push(p))
+    const like=`%${safe(q)}%`
+    const teachers=(await db.prepare(`SELECT id,username,full_name,email FROM users WHERE role='teacher' AND is_active=1 AND (full_name LIKE ? OR username LIKE ? OR COALESCE(email,'') LIKE ?) ORDER BY full_name`).bind(like,like,like).all()).results||[]
+    const students=(await db.prepare(`SELECT DISTINCT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.school_name,sp.goal FROM users u LEFT JOIN student_profiles sp ON sp.user_id=u.id LEFT JOIN teacher_student_links tsl ON tsl.student_id=u.id LEFT JOIN parent_student_links psl ON psl.student_id=u.id LEFT JOIN users p ON p.id=psl.parent_id WHERE u.role='student' AND u.is_active=1 AND (u.full_name LIKE ? OR u.username LIKE ? OR COALESCE(u.email,'') LIKE ? OR p.full_name LIKE ? OR p.username LIKE ? OR EXISTS(SELECT 1 FROM users t WHERE t.id=tsl.teacher_id AND (t.full_name LIKE ? OR t.username LIKE ? OR COALESCE(t.email,'') LIKE ?))) ORDER BY u.full_name`).bind(like,like,like,like,like,like,like,like).all()).results||[]
+    const ids=students.map(s=>s.id),byStudent=new Map(students.map(s=>[s.id,{...s,parents:[]}]))
+    if(ids.length){const ph=ids.map(()=>'?').join(',');const parents=(await db.prepare(`SELECT p.id,p.username,p.full_name,p.email,psl.student_id,psl.relationship FROM users p JOIN parent_student_links psl ON psl.parent_id=p.id WHERE p.role='parent' AND p.is_active=1 AND psl.student_id IN (${ph}) ORDER BY p.full_name`).bind(...ids).all()).results||[];parents.forEach(p=>byStudent.get(p.student_id)?.parents.push(p))}
     const links=(await db.prepare(`SELECT tsl.teacher_id,tsl.student_id FROM teacher_student_links tsl JOIN users t ON t.id=tsl.teacher_id WHERE t.role='teacher' AND t.is_active=1`).all()).results||[]
-    const teachers=data.teachers.map(t=>({...t,students:[]})),byTeacher=new Map(teachers.map(t=>[t.id,t]))
-    links.forEach(l=>{const s=byStudent.get(l.student_id),t=byTeacher.get(l.teacher_id);if(s&&t)t.students.push(s)})
+    const byTeacher=new Map(teachers.map(t=>[t.id,{...t,students:[]}]))
+    links.forEach(l=>{const s=byStudent.get(l.student_id),t=byTeacher.get(l.teacher_id);if(s&&t&&!t.students.some(x=>x.id===s.id))t.students.push(s)})
     return json({ok:true,teachers})
    }
    if(action==='profile'){
