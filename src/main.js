@@ -1,7 +1,6 @@
 import './style.css'
 import './login.css'
 import { icon } from './icons.js'
-import { renderWorkspace } from './workspace.js'
 
 const app = document.querySelector('#app')
 const SESSION_TTL = 30_000
@@ -9,6 +8,12 @@ let sessionCache = null
 let sessionAt = 0
 const apiCache = new Map()
 const inflight = new Map()
+let workspacePromise = null
+
+const loadWorkspace = () => {
+  if (!workspacePromise) workspacePromise = import('./workspace.js').then(m => m.renderWorkspace)
+  return workspacePromise
+}
 
 const api = async (url, options = {}, ttl = 0) => {
   const method = (options.method || 'GET').toUpperCase()
@@ -46,12 +51,7 @@ const landing = () => {
   return `<div class="page-shell"><header class="site-header container" id="siteHeader"><a class="brand" href="#top"><span class="brand-mark">M</span><span>Matematik Koçum</span></a><nav class="nav-links"><a class="active" href="#top">Ana Sayfa</a><a href="#features">Özellikler</a><a href="#about">Hakkımızda</a></nav><div class="header-actions"><button class="theme-toggle" id="landingTheme" aria-label="Tema değiştir">${icon('sun', 20)}</button><button class="button button-ghost" data-login>Giriş Yap</button></div></header><main id="top"><section class="hero container"><div class="hero-bg-grid"></div><div class="hero-copy"><div class="eyebrow">${icon('sparkles', 16)} Eğitimde akıllı yönetim platformu</div><h1>Matematikte başarı,<br><span class="gradient-text">planlı bir yolculuktur.</span></h1><p class="hero-lead">Öğretmen, öğrenci ve velileri tek çatı altında buluşturan modern eğitim platformu. Ders planlamasından sınav takibine, koçluktan raporlamaya kadar her şey burada.</p><div class="hero-actions"><button class="button button-primary" data-login>Başlayın ${icon('arrowRight', 18)}</button><a class="button button-secondary" href="#features">Daha Fazla Bilgi ${icon('chevronRight', 18)}</a></div></div><div class="hero-side"><div class="datetime-card"><div class="dt-time" id="liveClock">--:--</div><div class="dt-date">${esc(dateStr)}</div></div><div class="hero-stats" id="heroStats"><div class="stat-card neon-card"><div class="stat-icon">${icon('users', 24)}</div><div class="stat-value" id="statStudents">—</div><div class="stat-label">Öğrenci</div></div><div class="stat-card neon-card"><div class="stat-icon">${icon('graduation', 24)}</div><div class="stat-value" id="statTeachers">—</div><div class="stat-label">Öğretmen</div></div><div class="stat-card neon-card"><div class="stat-icon">${icon('heart', 24)}</div><div class="stat-value" id="statParents">—</div><div class="stat-label">Veli</div></div></div></div></section><section id="features" class="features container"><div class="section-heading"><span>Her şey eğitim için</span><h2>Tek platform. Tüm yolculuk.</h2></div><div class="feature-grid"><article class="neon-card"><div class="feature-icon">${icon('book', 22)}</div><h3>Ders ve İçerikler</h3><p>Derslerini, konu içeriklerini ve video kaynaklarını tek merkezden yönet.</p></article><article class="neon-card"><div class="feature-icon">${icon('check', 22)}</div><h3>Ödev ve Takip</h3><p>Görevlerini, teslim tarihlerini ve tamamlanma durumlarını kontrol et.</p></article><article class="neon-card"><div class="feature-icon">${icon('clipboard', 22)}</div><h3>Sınav ve Sonuçlar</h3><p>Sınavlarını planla, sonuçlarını incele ve performansını ölç.</p></article><article class="neon-card"><div class="feature-icon">${icon('trending', 22)}</div><h3>Gelişim Analizi</h3><p>Hedeflerini ve ilerlemeni sade göstergelerle takip et.</p></article><article class="neon-card"><div class="feature-icon">${icon('award', 22)}</div><h3>Koçluk</h3><p>Hedef, değerlendirme ve görüşme süreçlerini tek yerde buluştur.</p></article><article class="neon-card"><div class="feature-icon">${icon('mail', 22)}</div><h3>Güvenli İletişim</h3><p>Öğrenci, öğretmen, veli ve yönetici arasındaki iletişimi kolaylaştır.</p></article></div></section><section id="about" class="about container"><div class="about-inner neon-card"><span>MATEMATİK KOÇUM</span><h2>Başarı tesadüf değil.<br><b>Doğru sistemle mümkün.</b></h2><p>Modern, sade ve güvenli bir eğitim deneyimi için tasarlandı. Planla, ilerle, başar.</p></div></section></main><footer class="site-footer container"><span>© 2026 Matematik Koçum</span><span>Planla · İlerle · Başar</span></footer>${loginModal()}</div>`
 }
 
-const boot = async () => {
-  try {
-    const d = await getSession()
-    if (d.authenticated && d.user) { await renderWorkspace(app, d.user, logout); return }
-  } catch {}
-  app.innerHTML = landing()
+const bindLanding = () => {
   const overlay = app.querySelector('#loginOverlay')
   const open = () => { overlay.hidden = false; document.body.style.overflow = 'hidden'; overlay.querySelector('input')?.focus() }
   const close = () => { overlay.hidden = true; document.body.style.overflow = '' }
@@ -103,6 +103,7 @@ const boot = async () => {
       sessionCache = { authenticated: true, user: d.user }
       sessionAt = Date.now()
       close()
+      const renderWorkspace = await loadWorkspace()
       await renderWorkspace(app, d.user, logout)
     } catch (err) {
       note.textContent = err.message || 'Sunucuya ulaşılamadı.'
@@ -110,6 +111,19 @@ const boot = async () => {
       button.disabled = false
     }
   })
+}
+
+const boot = () => {
+  // Paint the public shell immediately. Authentication continues in parallel
+  // so a slow first Function request can no longer block the initial screen.
+  app.innerHTML = landing()
+  bindLanding()
+
+  getSession().then(async d => {
+    if (!d.authenticated || !d.user) return
+    const renderWorkspace = await loadWorkspace()
+    if (document.querySelector('#app') === app) await renderWorkspace(app, d.user, logout)
+  }).catch(() => {})
 }
 
 const saved = localStorage.getItem('mk_theme')
