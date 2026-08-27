@@ -1,8 +1,9 @@
 import './performance.js'
 import './main.js'
 
-// Keep the first paint focused on the core application. Secondary UI modules
-// are loaded after the browser has had a chance to paint the initial screen.
+// Secondary UI modules are application enhancements. Do not download or parse
+// them on the public landing page; load them only after the authenticated
+// workspace has rendered, keeping the first mobile request lightweight.
 const loadEnhancements = () => Promise.all([
   import('./people-features.js'),
   import('./people-ui-boot.js'),
@@ -12,8 +13,10 @@ const loadEnhancements = () => Promise.all([
   import('./phase4-ui.js')
 ]).catch(() => {})
 
-if ('requestIdleCallback' in window) {
-  requestIdleCallback(loadEnhancements, { timeout: 1200 })
-} else {
-  setTimeout(loadEnhancements, 100)
-}
+window.addEventListener('mk:workspace-ready', () => {
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(loadEnhancements, { timeout: 1200 })
+  } else {
+    setTimeout(loadEnhancements, 100)
+  }
+}, { once: true })
