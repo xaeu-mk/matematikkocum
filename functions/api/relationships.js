@@ -46,9 +46,10 @@ export async function onRequest(context){
    if(action==='tree'){
     if(user.role!=='admin')return json({ok:false,error:'Yetkiniz yok.'},403)
     const like=`%${safe(q)}%`
-    const teachers=(await db.prepare(`SELECT id,username,full_name,email FROM users WHERE role='teacher' AND is_active=1 AND (full_name LIKE ? OR username LIKE ? OR COALESCE(email,'') LIKE ?) ORDER BY full_name`).bind(like,like,like).all()).results||[]
+    let teachers=(await db.prepare(`SELECT id,username,full_name,email FROM users WHERE role='teacher' AND is_active=1 ORDER BY full_name`).all()).results||[]
     const students=(await db.prepare(`SELECT DISTINCT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.school_name,sp.goal FROM users u LEFT JOIN student_profiles sp ON sp.user_id=u.id LEFT JOIN teacher_student_links tsl ON tsl.student_id=u.id LEFT JOIN parent_student_links psl ON psl.student_id=u.id LEFT JOIN users p ON p.id=psl.parent_id WHERE u.role='student' AND u.is_active=1 AND (u.full_name LIKE ? OR u.username LIKE ? OR COALESCE(u.email,'') LIKE ? OR p.full_name LIKE ? OR p.username LIKE ? OR EXISTS(SELECT 1 FROM users t WHERE t.id=tsl.teacher_id AND (t.full_name LIKE ? OR t.username LIKE ? OR COALESCE(t.email,'') LIKE ?))) ORDER BY u.full_name`).bind(like,like,like,like,like,like,like,like).all()).results||[]
     const ids=students.map(s=>s.id),byStudent=new Map(students.map(s=>[s.id,{...s,parents:[]}]))
+    if(q){const matchingTeacherIds=new Set((await db.prepare(`SELECT DISTINCT tsl.teacher_id FROM teacher_student_links tsl WHERE tsl.student_id IN (${ids.length?ids.map(()=>'?').join(','):'NULL'})`).bind(...ids).all()).results?.map(x=>x.teacher_id)||[]);teachers=teachers.filter(t=>t.full_name.toLowerCase().includes(safe(q).toLowerCase())||t.username.toLowerCase().includes(safe(q).toLowerCase())||matchingTeacherIds.has(t.id))}
     if(ids.length){const ph=ids.map(()=>'?').join(',');const parents=(await db.prepare(`SELECT p.id,p.username,p.full_name,p.email,psl.student_id,psl.relationship FROM users p JOIN parent_student_links psl ON psl.parent_id=p.id WHERE p.role='parent' AND p.is_active=1 AND psl.student_id IN (${ph}) ORDER BY p.full_name`).bind(...ids).all()).results||[];parents.forEach(p=>byStudent.get(p.student_id)?.parents.push(p))}
     const links=(await db.prepare(`SELECT tsl.teacher_id,tsl.student_id FROM teacher_student_links tsl JOIN users t ON t.id=tsl.teacher_id WHERE t.role='teacher' AND t.is_active=1`).all()).results||[]
     const byTeacher=new Map(teachers.map(t=>[t.id,{...t,students:[]}]))
@@ -66,7 +67,6 @@ export async function onRequest(context){
   }
   if(context.request.method!=='POST')return json({ok:false,error:'Method desteklenmiyor.'},405)
   const body=await context.request.json().catch(()=>({}))
-
   if(action==='create-parent'){
    if(!['admin','teacher'].includes(user.role))return json({ok:false,error:'Yetkiniz yok.'},403)
    const studentId=safe(body.studentId),username=safe(body.username),fullName=safe(body.fullName)
@@ -80,7 +80,6 @@ export async function onRequest(context){
    await db.prepare(`INSERT INTO parent_student_links(parent_id,student_id,relationship) VALUES(?,?,?)`).bind(id,studentId,safe(body.relationship||'Veli')).run()
    return json({ok:true,id},201)
   }
-
   if(action==='update-person'){
    const targetId=safe(body.userId)
    if(!targetId||!(await canManagePerson(db,user,targetId)))return json({ok:false,error:'Bu kullanıcıyı düzenleme yetkiniz yok.'},403)
@@ -90,7 +89,6 @@ export async function onRequest(context){
    if(target.role==='student')await db.prepare(`INSERT OR REPLACE INTO student_profiles(user_id,grade_level,school_name,goal) VALUES(?,?,?,?)`).bind(targetId,safe(body.gradeLevel||''),safe(body.schoolName||''),safe(body.goal||'')).run()
    return json({ok:true})
   }
-
   if(action==='set-photo-permission'){
    const targetId=safe(body.userId)
    if(!targetId||!(await canManagePerson(db,user,targetId)))return json({ok:false,error:'Yetkiniz yok.'},403)
@@ -99,7 +97,6 @@ export async function onRequest(context){
    await db.prepare(`INSERT INTO user_settings(user_id,avatar_upload_allowed) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET avatar_upload_allowed=excluded.avatar_upload_allowed,updated_at=?`).bind(targetId,body.allowed?1:0,now()).run()
    return json({ok:true,allowed:!!body.allowed})
   }
-
   if(action==='upload-avatar'){
    const targetId=safe(body.userId)||user.id
    if(targetId!==user.id&&!(await canManagePerson(db,user,targetId)))return json({ok:false,error:'Yetkiniz yok.'},403)
@@ -113,7 +110,6 @@ export async function onRequest(context){
    await db.prepare(`INSERT INTO user_settings(user_id,avatar_data) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET avatar_data=excluded.avatar_data,updated_at=?`).bind(targetId,data,now()).run()
    return json({ok:true,avatarData:data})
   }
-
   return json({ok:false,error:'Geçersiz işlem.'},400)
  }catch(e){console.error('RELATIONSHIPS_ERROR',e);return json({ok:false,error:e?.message||'Beklenmeyen hata.'},500)}
 }
