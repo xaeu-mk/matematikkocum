@@ -105,6 +105,7 @@ const bindLanding = () => {
       close()
       const renderWorkspace = await loadWorkspace()
       await renderWorkspace(app, d.user, logout)
+      window.dispatchEvent(new Event('mk:workspace-ready'))
     } catch (err) {
       note.textContent = err.message || 'Sunucuya ulaşılamadı.'
     } finally {
@@ -122,7 +123,10 @@ const boot = () => {
   getSession().then(async d => {
     if (!d.authenticated || !d.user) return
     const renderWorkspace = await loadWorkspace()
-    if (document.querySelector('#app') === app) await renderWorkspace(app, d.user, logout)
+    if (document.querySelector('#app') === app) {
+      await renderWorkspace(app, d.user, logout)
+      window.dispatchEvent(new Event('mk:workspace-ready'))
+    }
   }).catch(() => {})
 }
 
