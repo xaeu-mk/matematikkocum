@@ -1,15 +1,18 @@
-// Lightweight client-side request deduplication/cache for fast workspace navigation.
-// No feature or UI behavior is changed here; only repeated GET requests are avoided.
+// Client-side performance layer: request deduplication + short-lived read cache.
+// This only reduces duplicate network work; it does not add UI/features.
 const originalFetch = window.fetch.bind(window)
 const cache = new Map()
-const TTL_APP = 8000
-const TTL_CALENDAR = 3000
 const MAX_ENTRIES = 80
+const TTL = {
+  app: 8000,
+  calendar: 3000,
+  session: 30000
+}
 
 const getTtl = url => {
-  if (url.startsWith('/api/app?resource=')) return TTL_APP
-  if (url.startsWith('/api/calendar?action=')) return TTL_CALENDAR
-  if (url.startsWith('/api/auth/session')) return 30000
+  if (url.startsWith('/api/app?resource=')) return TTL.app
+  if (url.startsWith('/api/calendar?action=')) return TTL.calendar
+  if (url.startsWith('/api/auth/session')) return TTL.session
   return 0
 }
 
@@ -19,23 +22,35 @@ const trimCache = () => {
   for (let i = 0; i < entries.length - MAX_ENTRIES; i++) cache.delete(entries[i][0])
 }
 
-window.fetch = async (input, init = {}) => {
-  const method = String(init.method || 'GET').toUpperCase()
-  const url = typeof input === 'string' ? input : input?.url || ''
-  const ttl = method === 'GET' ? getTtl(url) : 0
+const invalidate = () => {
+  for (const [key, value] of cache) {
+    if (value?.pending) continue
+    cache.delete(key)
+  }
+}
 
-  // Mutations invalidate cached reads so the UI never intentionally keeps stale data.
+window.fetch = async (input, init = {}) => {
+  const method = String(init.method || (typeof input !== 'string' ? input?.method : '') || 'GET').toUpperCase()
+  const url = typeof input === 'string' ? input : input?.url || ''
+
+  // Any write can change previously cached data. Invalidate before the write
+  // so a following navigation never receives an intentionally stale snapshot.
   if (method !== 'GET') {
-    cache.clear()
+    invalidate()
     return originalFetch(input, init)
   }
-  if (!ttl) return originalFetch(input, init)
+
+  const ttl = getTtl(url)
+  if (!ttl || init.cache === 'no-store') return originalFetch(input, init)
 
   const key = url
   const now = Date.now()
   const cached = cache.get(key)
 
   if (cached?.response && now - cached.time < ttl) {
+    // LRU touch: recently used entries stay available longer when the cache fills.
+    cache.delete(key)
+    cache.set(key, { ...cached, time: now })
     return cached.response.clone()
   }
 
@@ -44,23 +59,25 @@ window.fetch = async (input, init = {}) => {
     return response.clone()
   }
 
-  const request = originalFetch(input, init).then(response => {
-    if (!response.ok) {
-      cache.delete(key)
+  const request = originalFetch(input, init)
+    .then(response => {
+      if (!response.ok) {
+        cache.delete(key)
+        return response
+      }
+      const entry = { time: Date.now(), response: response.clone() }
+      cache.set(key, entry)
+      trimCache()
       return response
-    }
-    // Keep a clone in memory while returning the original stream to the caller.
-    cache.set(key, { time: Date.now(), response: response.clone() })
-    trimCache()
-    return response
-  }).catch(error => {
-    cache.delete(key)
-    throw error
-  })
+    })
+    .catch(error => {
+      cache.delete(key)
+      throw error
+    })
 
   cache.set(key, { time: now, pending: request })
   trimCache()
   return request
 }
 
-window.__mkInvalidateCache = () => cache.clear()
+window.__mkInvalidateCache = invalidate
