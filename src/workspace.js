@@ -32,7 +32,9 @@ const nav = (role) => {
   ]
   return sections.map(([title, keys]) => {
     const ok = keys.map(k => items.find(x => x[0] === k)).filter(Boolean)
-    return ok.length ? `<div class="nav-section"><span>${title}</span>${ok.map(([k, l]) => `<button class="workspace-nav" data-page="${k}">${icon(navIcons[k] || 'home', 20)}<span>${l}</span></button>`).join('')}</div>` : ''
+    if (!ok.length) return ''
+    if (ok.length === 1) return `<div class="nav-section"><span>${title}</span>${ok.map(([k, l]) => `<button class="workspace-nav" data-page="${k}">${icon(navIcons[k] || 'home', 20)}<span>${l}</span></button>`).join('')}</div>`
+    return `<div class="nav-section nav-accordion"><button class="nav-accordion-head" data-nav-toggle aria-expanded="true"><span>${title}</span>${icon('chevronDown', 16)}</button><div class="nav-accordion-body">${ok.map(([k, l]) => `<button class="workspace-nav" data-page="${k}">${icon(navIcons[k] || 'home', 20)}<span>${l}</span></button>`).join('')}</div></div>`
   }).join('')
 }
 
@@ -57,7 +59,10 @@ const forms = {
   progress: () => modalShell('GELİŞİM', 'İlerleme Ekle', 'Gelişim kaydı oluştur.', modalField('metric', 'Metrik', 'text', { placeholder: 'Örn: Çözülen soru sayısı' }) + modalField('value', 'Değer', 'number', { placeholder: '120' }) + modalField('target', 'Hedef', 'number', { required: false, placeholder: '200' }) + modalField('period', 'Dönem', 'text', { placeholder: 'Örn: 2026-08' })),
   videos: () => modalShell('ÖĞRENME', 'Video Ekle', 'Video ders kaydı oluştur.', modalField('title', 'Video adı', 'text', { placeholder: 'Örn: Limit konu anlatımı' }) + modalField('url', 'Video URL', 'url', { placeholder: 'https://…' }) + modalField('subject', 'Ders', 'text', { placeholder: 'Örn: Matematik' }) + modalField('description', 'Açıklama', 'textarea', { required: false, placeholder: 'Video içeriği' })),
   messages: () => modalShell('İLETİŞİM', 'Yeni Mesaj', 'Kullanıcıya mesaj gönder.', modalField('receiverId', 'Alıcı ID', 'text', { placeholder: 'Alıcı kimliği' }) + modalField('body', 'Mesaj', 'textarea', { placeholder: 'Mesajınız' })),
-  calendar: () => modalShell('PLANLAMA', 'Plan Ekle', 'Takvime yeni etkinlik ekle.', modalField('title', 'Başlık', 'text', { placeholder: 'Örn: Matematik çalışması' }) + modalField('startAt', 'Başlangıç', 'datetime-local') + modalField('endAt', 'Bitiş', 'datetime-local', { required: false }) + modalField('description', 'Açıklama', 'textarea', { required: false, placeholder: 'Etkinlik detayı' }))
+  calendar: () => modalShell('PLANLAMA', 'Plan Ekle', 'Takvime yeni etkinlik ekle.', modalField('title', 'Başlık', 'text', { placeholder: 'Örn: Matematik çalışması' }) + modalField('startAt', 'Başlangıç', 'datetime-local') + modalField('endAt', 'Bitiş', 'datetime-local', { required: false }) + modalField('description', 'Açıklama', 'textarea', { required: false, placeholder: 'Etkinlik detayı' })),
+  teachers: () => modalShell('KULLANICILAR', 'Öğretmen Ekle', 'Yeni öğretmen hesabı oluştur.', modalField('username', 'Kullanıcı adı', 'text', { placeholder: 'ornek' }) + modalField('fullName', 'Ad Soyad', 'text', { placeholder: 'Ad Soyad' }) + modalField('email', 'E-posta', 'email', { required: false, placeholder: 'ornek@email.com' }) + modalField('password', 'Şifre', 'password', { placeholder: 'En az 8 karakter' })),
+  classes: () => modalShell('KULLANICILAR', 'Yeni Grup', 'Sınıf veya grup oluştur.', modalField('name', 'Grup adı', 'text', { placeholder: 'Örn: 12-A Sınıfı' }) + `<label class="wide">Açıklama<textarea name="description" rows="2" placeholder="İsteğe bağlı"></textarea></label>`),
+  students: () => modalShell('KULLANICILAR', 'Öğrenci Ekle', 'Yeni öğrenci hesabı oluştur.', modalField('username', 'Kullanıcı adı', 'text', { placeholder: 'ornek' }) + modalField('fullName', 'Ad Soyad', 'text', { placeholder: 'Ad Soyad' }) + modalField('email', 'E-posta', 'email', { required: false, placeholder: 'ornek@email.com' }) + modalField('password', 'Şifre', 'password', { placeholder: 'En az 8 karakter' }) + `<label>Sınıf seviyesi<input name="gradeLevel" type="text" placeholder="Örn: 12. sınıf"></label>` + `<label>Okul adı<input name="schoolName" type="text" placeholder="İsteğe bağlı"></label>` + `<label class="wide">Hedef<textarea name="goal" rows="2" placeholder="İsteğe bağlı"></textarea></label>`)
 }
 
 export const renderWorkspace = async (app, user, onLogout) => {
@@ -120,7 +125,6 @@ export const renderWorkspace = async (app, user, onLogout) => {
   const timeToMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0) }
   const overlap = (aS, aE, bS, bE) => aS < bE && bS < aE
   const todayStr = () => new Date().toISOString().slice(0, 10)
-  const isPastSlot = (ds, hour) => { const dt = new Date(ds + 'T' + hour + ':00'); return dt < new Date() }
 
   const slotStatus = (ds, hour, events, blocks) => {
     const slotStart = timeToMin(hour)
@@ -170,8 +174,6 @@ export const renderWorkspace = async (app, user, onLogout) => {
       cells.push(`<button class="calendar-cell ${ds === sel ? 'selected' : ''} ${isPast ? 'past-day' : ''}" data-cal-date="${ds}" ${isPast ? 'disabled' : ''} aria-label="${day} ${new Intl.DateTimeFormat('tr-TR', { month: 'long' }).format(calDate)}"><span class="cal-day-num">${day}</span>${summary.lessons > 0 ? `<i class="cal-dot busy"></i>` : ''}${summary.closed > 0 && summary.lessons === 0 ? `<i class="cal-dot closed"></i>` : ''}${canManage && !isPast ? `<div class="cal-cell-stats"><span>${summary.lessons} ders</span><span>${summary.open} açık</span>${summary.closed > 0 ? `<span>${summary.closed} kapalı</span>` : ''}</div>` : `<div class="cal-cell-stats"><span>${summary.lessons} ders</span></div>`}</button>`)
     }
 
-    const selectedEvents = byDay[sel] || []
-    const selectedBlocks = blocksByDay[sel] || []
     const slotsHtml = HOURS.map(h => {
       const hour = h + ':00'
       const status = slotStatus(sel, hour, calEvents, calBlocks)
@@ -207,6 +209,67 @@ export const renderWorkspace = async (app, user, onLogout) => {
     content.innerHTML = heading(ey, title, text, action) + card(title, `<div class="data-list">${rows}</div>`)
   }
 
+  const teachersPage = async () => {
+    const d = await get('teachers', 10000)
+    const items = d.items || []
+    const action = user.role === 'admin' ? `<button class="button button-primary" data-add="teachers">${icon('plus', 18)} Öğretmen Ekle</button>` : ''
+    const rows = items.length ? items.map(x => `<article class="data-row"><div><b>${esc(x.full_name || x.username)}</b><span>@${esc(x.username)}${x.email ? ' · ' + esc(x.email) : ''}</span><small>${x.student_count || 0} öğrenci</small></div><span class="status-badge ${x.is_active ? 'active' : 'inactive'}">${x.is_active ? 'Aktif' : 'Pasif'}</span></article>`).join('') : empty('Henüz öğretmen yok', 'Sisteme öğretmen eklendiğinde burada görünecek.')
+    content.innerHTML = heading('KULLANICILAR', 'Öğretmenler', 'Öğretmen hesaplarını yönet.', action) + card('Öğretmen Listesi', `<div class="data-list">${rows}</div>`)
+  }
+
+  const studentsPage = async () => {
+    const d = await get('students', 10000)
+    const items = d.items || []
+    const canAdd = user.role === 'admin' || user.role === 'teacher'
+    const action = canAdd ? `<button class="button button-primary" data-add="students">${icon('plus', 18)} Öğrenci Ekle</button>` : ''
+    const rows = items.length ? items.map(x => `<article class="data-row"><div><b>${esc(x.full_name || x.username)}</b><span>@${esc(x.username)}${x.email ? ' · ' + esc(x.email) : ''}</span><small>${esc(x.grade_level || '')}${x.group_name ? ' · ' + esc(x.group_name) : ''}${x.teacher_name ? ' · ' + esc(x.teacher_name) : ''}</small></div><span class="status-badge active">Öğrenci</span></article>`).join('') : empty('Henüz öğrenci yok', 'Sisteme öğrenci eklendiğinde burada görünecek.')
+    content.innerHTML = heading('KULLANICILAR', 'Öğrenciler', 'Öğrenci hesaplarını yönet.', action) + card('Öğrenci Listesi', `<div class="data-list">${rows}</div>`)
+  }
+
+  const classesPage = async () => {
+    const d = await get('classes', 10000)
+    const items = d.items || []
+    const canAdd = user.role === 'admin' || user.role === 'teacher'
+    const action = canAdd ? `<button class="button button-primary" data-add="classes">${icon('plus', 18)} Yeni Grup</button>` : ''
+    const rows = items.length ? items.map(x => `<article class="data-row"><div><b>${esc(x.name)}</b><span>${esc(x.description || '')}</span><small>${x.teacher_name ? 'Öğretmen: ' + esc(x.teacher_name) : ''}${x.student_count != null ? ' · ' + x.student_count + ' öğrenci' : ''}</small></div><span class="status-badge active">Grup</span></article>`).join('') : empty('Henüz grup yok', 'Sisteme grup eklendiğinde burada görünecek.')
+    content.innerHTML = heading('KULLANICILAR', 'Sınıf & Grup Yönetimi', 'Sınıf ve grupları yönet.', action) + card('Grup Listesi', `<div class="data-list">${rows}</div>`)
+  }
+
+  const activityPage = async () => {
+    const d = await get('activity', 10000)
+    const items = d.items || []
+    const rows = items.length ? items.map(x => `<article class="data-row"><div><b>${esc(x.action)}</b><span>${esc(x.full_name || x.username || 'Sistem')}</span><small>${date(x.created_at)}</small></div></article>`).join('') : empty('Aktivite yok', 'Sistem hareketleri burada görünecek.')
+    content.innerHTML = heading('SİSTEM', 'Aktivite', 'Sistem hareketlerini incele.') + card('Son Hareketler', `<div class="data-list">${rows}</div>`)
+  }
+
+  const reportsPage = async () => {
+    const d = await get('reports', 10000)
+    const r = (d.items || [])[0] || {}
+    content.innerHTML = heading('ANALİZ', 'Raporlar', 'Platform verilerini sade özetlerle incele.') + `<div class="metric-grid">${stat('Öğretmenler', r.teacherCount, 'Aktif', 'graduation')}${stat('Öğrenciler', r.studentCount, 'Aktif', 'users')}${stat('Dersler', r.courseCount, 'Toplam', 'book')}${stat('Gruplar', r.groupCount, 'Toplam', 'grid')}</div><div class="metric-grid">${stat('Sınavlar', r.examCount, 'Toplam', 'clipboard')}${stat('Ödevler', r.assignmentCount, 'Toplam', 'check')}${stat('Mesajlar', r.messageCount, 'Toplam', 'mail')}</div>`
+  }
+
+  const settingsPage = async () => {
+    let settings = {}
+    try { settings = (await get('settings', 5000)).settings || {} } catch {}
+    content.innerHTML = heading('SİSTEM', 'Ayarlar', 'Hesap ve görünüm tercihlerini yönet.') + `<section class="surface-card"><div class="surface-head"><h3>Hesap Bilgileri</h3></div><div class="settings-summary"><div class="profile-avatar">${esc((user.fullName || user.username).slice(0, 1).toUpperCase())}</div><div class="settings-info"><b>${esc(user.fullName || user.username)}</b><span>@${esc(user.username)}</span><small>${roles[user.role] || user.role}</small></div></div></section>` + `<section class="surface-card"><div class="surface-head"><h3>Şifre Değiştir</h3></div><form id="passwordForm" class="modern-form"><div class="form-grid"><label>Mevcut şifre<input name="currentPassword" type="password" required placeholder="••••••••"></label><label>Yeni şifre<input name="newPassword" type="password" required placeholder="En az 8 karakter"></label><label>Yeni şifre tekrar<input name="confirmPassword" type="password" required placeholder="Tekrar girin"></label></div><div class="modal-actions"><span class="modal-msg" id="pwMsg"></span><button class="button button-primary" type="submit">Şifreyi Güncelle</button></div></form></section>`
+    const pwForm = content.querySelector('#passwordForm')
+    const pwMsg = content.querySelector('#pwMsg')
+    if (pwForm) pwForm.addEventListener('submit', async e => {
+      e.preventDefault()
+      const data = Object.fromEntries(new FormData(e.currentTarget).entries())
+      if (data.newPassword !== data.confirmPassword) { pwMsg.textContent = 'Yeni şifre tekrarı eşleşmiyor.'; return }
+      if (data.newPassword.length < 8) { pwMsg.textContent = 'Yeni şifre en az 8 karakter olmalı.'; return }
+      pwMsg.textContent = 'Güncelleniyor…'
+      try {
+        const r = await fetch('/api/auth/change-password', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        const d = await r.json()
+        if (!r.ok || !d.ok) throw new Error(d.error || 'İşlem başarısız.')
+        pwMsg.textContent = 'Şifre başarıyla güncellendi.'
+        pwForm.reset()
+      } catch (err) { pwMsg.textContent = err.message }
+    })
+  }
+
   const pages = {
     dashboard,
     calendar,
@@ -218,14 +281,12 @@ export const renderWorkspace = async (app, user, onLogout) => {
     progress: () => listPage('progress', 'GELİŞİM', 'Gelişim Merkezi', 'Performansını ölç ve hedeflerinle karşılaştır.', 'İlerleme Ekle'),
     videos: () => listPage('videos', 'ÖĞRENME', 'Video Dersler', 'Konu anlatımlarını tek kütüphanede bul.', 'Video Ekle'),
     messages: () => listPage('messages', 'İLETİŞİM', 'Mesajlar', 'Güvenli iletişim merkezinden mesajlarını yönet.', 'Yeni Mesaj'),
-    reports: () => listPage('dashboard', 'ANALİZ', 'Raporlar', 'Platform verilerini sade özetlerle ince.'),
-    students: () => listPage('students', 'KULLANICILAR', 'Öğrenciler', 'Öğrenci hesaplarını yönet.', 'Öğrenci Ekle'),
-    teachers: () => listPage('users', 'KULLANICILAR', 'Öğretmenler', 'Öğretmen hesaplarını yönet.', 'Öğretmen Ekle'),
-    classes: () => listPage('classes', 'KULLANICILAR', 'Sınıf & Grup Yönetimi', 'Sınıf ve grupları yönet.', 'Yeni Sınıf'),
-    activity: () => listPage('activity', 'SİSTEM', 'Aktivite', 'Sistem hareketlerini incele.'),
-    settings: async () => {
-      content.innerHTML = heading('SİSTEM', 'Ayarlar', 'Hesap ve görünüm tercihlerini yönet.') + card('Hesap', `<div class="settings-summary"><b>${esc(user.fullName || user.username)}</b><span>@${esc(user.username)} · ${roles[user.role] || user.role}</span></div>`)
-    }
+    reports: reportsPage,
+    students: studentsPage,
+    teachers: teachersPage,
+    classes: classesPage,
+    activity: activityPage,
+    settings: settingsPage
   }
 
   const show = async (page) => {
@@ -233,6 +294,7 @@ export const renderWorkspace = async (app, user, onLogout) => {
     app.querySelectorAll('.workspace-nav').forEach(b => b.classList.toggle('active', b.dataset.page === page))
     app.querySelector('#workspaceTitle').textContent = labels[page] || 'Panel'
     content.innerHTML = '<div class="workspace-loading"><span></span><span></span><span></span></div>'
+    closeMobileNav()
     try { await (pages[page] || dashboard)() } catch (e) {
       content.innerHTML = `<div class="error-state">${icon('alert', 24)}<b>Bir sorun oluştu.</b><span>${esc(e.message)}</span><button class="button button-secondary" data-retry>Tekrar dene</button></div>`
     }
@@ -264,7 +326,33 @@ export const renderWorkspace = async (app, user, onLogout) => {
     form.querySelector('input')?.focus()
   }
 
+  const sidebarEl = app.querySelector('.workspace-sidebar')
+  const closeMobileNav = () => {
+    sidebarEl.classList.remove('open')
+    const bd = app.querySelector('#mobileBackdrop')
+    if (bd) bd.remove()
+    document.body.style.overflow = ''
+  }
+  const openMobileNav = () => {
+    sidebarEl.classList.add('open')
+    if (!app.querySelector('#mobileBackdrop')) {
+      const bd = document.createElement('div')
+      bd.id = 'mobileBackdrop'
+      bd.className = 'mobile-backdrop'
+      bd.addEventListener('click', closeMobileNav)
+      app.appendChild(bd)
+    }
+    document.body.style.overflow = 'hidden'
+  }
+
   app.addEventListener('click', async e => {
+    const navToggle = e.target.closest('[data-nav-toggle]')
+    if (navToggle) {
+      const section = navToggle.closest('.nav-accordion')
+      const isOpen = section.classList.toggle('collapsed')
+      navToggle.setAttribute('aria-expanded', !isOpen)
+      return
+    }
     const n = e.target.closest('[data-page]')
     if (n) { await show(n.dataset.page); return }
     if (e.target.closest('[data-retry]')) { await show(current); return }
@@ -302,7 +390,13 @@ export const renderWorkspace = async (app, user, onLogout) => {
     document.documentElement.classList.toggle('dark')
     localStorage.setItem('mk_theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light')
   })
-  app.querySelector('#mobileMenu').addEventListener('click', () => app.querySelector('.workspace-sidebar').classList.toggle('open'))
+  app.querySelector('#mobileMenu').addEventListener('click', () => {
+    if (sidebarEl.classList.contains('open')) closeMobileNav()
+    else openMobileNav()
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebarEl.classList.contains('open')) closeMobileNav()
+  })
   const sidebar = app.querySelector('#workspaceSidebar')
   const collapseBtn = app.querySelector('#sidebarCollapse')
   if (collapseBtn) {

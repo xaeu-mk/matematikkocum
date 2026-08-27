@@ -1,5 +1,5 @@
 import { requireSession } from './auth/_require.js'
-import { randomId } from './auth/_crypto.js'
+import { randomId, hashPassword } from './auth/_crypto.js'
 
 const json=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}})
 const now=()=>new Date().toISOString()
@@ -63,9 +63,34 @@ async function resourceList(db,user,resource){
  if(resource==='progress')return (await db.prepare(`SELECT * FROM progress_entries WHERE student_id=? ORDER BY created_at DESC`).bind(user.id).all()).results||[]
  if(resource==='announcements')return (await db.prepare(`SELECT a.*,u.full_name author_name FROM announcements a LEFT JOIN users u ON u.id=a.created_by ORDER BY a.created_at DESC LIMIT 30`).all()).results||[]
  if(resource==='students'){
-  if(user.role==='teacher')return (await db.prepare(`SELECT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.goal FROM users u JOIN teacher_student_links l ON l.student_id=u.id LEFT JOIN student_profiles sp ON sp.user_id=u.id WHERE l.teacher_id=?`).bind(user.id).all()).results||[]
+  if(user.role==='teacher')return (await db.prepare(`SELECT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.goal,g.name group_name FROM users u JOIN teacher_student_links l ON l.student_id=u.id LEFT JOIN student_profiles sp ON sp.user_id=u.id LEFT JOIN student_group_links sgl ON sgl.student_id=u.id LEFT JOIN class_groups g ON g.id=sgl.group_id WHERE l.teacher_id=?`).bind(user.id).all()).results||[]
   if(user.role==='parent')return (await db.prepare(`SELECT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.goal FROM users u JOIN parent_student_links l ON l.student_id=u.id LEFT JOIN student_profiles sp ON sp.user_id=u.id WHERE l.parent_id=?`).bind(user.id).all()).results||[]
-  if(user.role==='admin')return (await db.prepare(`SELECT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.goal FROM users u LEFT JOIN student_profiles sp ON sp.user_id=u.id WHERE u.role='student'`).all()).results||[]
+  if(user.role==='admin')return (await db.prepare(`SELECT u.id,u.username,u.full_name,u.email,sp.grade_level,sp.goal,g.name group_name,t.full_name teacher_name FROM users u LEFT JOIN student_profiles sp ON sp.user_id=u.id LEFT JOIN student_group_links sgl ON sgl.student_id=u.id LEFT JOIN class_groups g ON g.id=sgl.group_id LEFT JOIN teacher_student_links tsl ON tsl.student_id=u.id LEFT JOIN users t ON t.id=tsl.teacher_id WHERE u.role='student'`).all()).results||[]
+ }
+ if(resource==='teachers'){
+  if(user.role==='admin')return (await db.prepare(`SELECT u.id,u.username,u.full_name,u.email,u.is_active,u.created_at,(SELECT COUNT(*) FROM teacher_student_links l WHERE l.teacher_id=u.id) student_count FROM users u WHERE u.role='teacher' ORDER BY u.full_name ASC`).all()).results||[]
+  return []
+ }
+ if(resource==='classes'){
+  const q=user.role==='admin'?db.prepare(`SELECT g.*,u.full_name teacher_name,(SELECT COUNT(*) FROM student_group_links l WHERE l.group_id=g.id) student_count FROM class_groups g LEFT JOIN users u ON u.id=g.teacher_id ORDER BY g.created_at DESC`):user.role==='teacher'?db.prepare(`SELECT g.*,(SELECT COUNT(*) FROM student_group_links l WHERE l.group_id=g.id) student_count FROM class_groups g WHERE g.teacher_id=? ORDER BY g.created_at DESC`).bind(user.id):db.prepare(`SELECT g.name FROM class_groups g ORDER BY g.name ASC`)
+  return (await q.all()).results||[]
+ }
+ if(resource==='activity'){
+  if(user.role!=='admin')return []
+  return (await db.prepare(`SELECT a.action,a.created_at,u.username,u.full_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 50`).all()).results||[]
+ }
+ if(resource==='reports'){
+  if(user.role!=='admin')return []
+  const [teacherCount,studentCount,courseCount,examCount,assignmentCount,messageCount,groupCount]=(await Promise.all([
+   db.prepare("SELECT COUNT(*) n FROM users WHERE role='teacher' AND is_active=1").first(),
+   db.prepare("SELECT COUNT(*) n FROM users WHERE role='student' AND is_active=1").first(),
+   db.prepare('SELECT COUNT(*) n FROM courses').first(),
+   db.prepare('SELECT COUNT(*) n FROM exams').first(),
+   db.prepare('SELECT COUNT(*) n FROM assignments').first(),
+   db.prepare('SELECT COUNT(*) n FROM messages').first(),
+   db.prepare('SELECT COUNT(*) n FROM class_groups').first()
+  ])).map(r=>Number(r?.n||0))
+  return [{teacherCount,studentCount,courseCount,examCount,assignmentCount,messageCount,groupCount}]
  }
  return []
 }
@@ -82,6 +107,35 @@ async function createResource(db,user,resource,body){
  if(resource==='exams'){if(!['admin','teacher'].includes(user.role))return null;await db.prepare(`INSERT INTO exams(id,title,subject,starts_at,duration_minutes,teacher_id,created_at) VALUES(?,?,?,?,?,?,?)`).bind(id,safe(body.title),safe(body.subject),body.startsAt||null,Number(body.durationMinutes)||60,user.role==='teacher'?user.id:(body.teacherId||null),created).run();return{id}}
  if(resource==='videos'){if(!['admin','teacher'].includes(user.role))return null;await db.prepare(`INSERT INTO videos(id,title,description,url,subject,teacher_id,is_active,created_at) VALUES(?,?,?,?,?,?,?,?)`).bind(id,safe(body.title),safe(body.description),safe(body.url),safe(body.subject),user.id,1,created).run();return{id}}
  if(resource==='announcements'){if(user.role!=='admin')return null;await db.prepare(`INSERT INTO announcements(id,title,body,created_by,created_at) VALUES(?,?,?,?,?)`).bind(id,safe(body.title),safe(body.body),user.id,created).run();return{id}}
+ if(resource==='classes'){if(!['admin','teacher'].includes(user.role))return null;await db.prepare(`INSERT INTO class_groups(id,name,teacher_id,description,created_at) VALUES(?,?,?,?,?)`).bind(id,safe(body.name),user.role==='teacher'?user.id:(body.teacherId||null),safe(body.description||''),created).run();return{id}}
+ if(resource==='students'){
+  if(!['admin','teacher'].includes(user.role))return null
+  const username=safe(body.username),fullName=safe(body.fullName)
+  if(!username||!fullName||!body.password)return null
+  const existing=await db.prepare('SELECT id FROM users WHERE username=?').bind(username).first()
+  if(existing)return null
+  const salt=randomId()
+  const hash=await hashPassword(body.password,salt)
+  const studentId=randomId()
+  await db.prepare(`INSERT INTO users(id,username,password_hash,password_salt,password_iterations,role,full_name,email,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(studentId,username,hash,salt,100000,'student',fullName,safe(body.email||''),1,created,created).run()
+  const teacherId=user.role==='teacher'?user.id:safe(body.teacherId)
+  if(teacherId)await db.prepare('INSERT OR IGNORE INTO teacher_student_links(teacher_id,student_id) VALUES(?,?)').bind(teacherId,studentId).run()
+  if(body.gradeLevel||body.schoolName||body.goal)await db.prepare(`INSERT OR REPLACE INTO student_profiles(user_id,grade_level,school_name,goal) VALUES(?,?,?,?)`).bind(studentId,safe(body.gradeLevel||''),safe(body.schoolName||''),safe(body.goal||'')).run()
+  if(body.groupId)await db.prepare('INSERT OR IGNORE INTO student_group_links(student_id,group_id) VALUES(?,?)').bind(studentId,body.groupId).run()
+  return{id:studentId}
+ }
+ if(resource==='teachers'){
+  if(user.role!=='admin')return null
+  const username=safe(body.username),fullName=safe(body.fullName)
+  if(!username||!fullName||!body.password)return null
+  const existing=await db.prepare('SELECT id FROM users WHERE username=?').bind(username).first()
+  if(existing)return null
+  const salt=randomId()
+  const hash=await hashPassword(body.password,salt)
+  const teacherId=randomId()
+  await db.prepare(`INSERT INTO users(id,username,password_hash,password_salt,password_iterations,role,full_name,email,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(teacherId,username,hash,salt,100000,'teacher',fullName,safe(body.email||''),1,created,created).run()
+  return{id:teacherId}
+ }
  return null
 }
 
