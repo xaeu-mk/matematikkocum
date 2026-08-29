@@ -1,4 +1,5 @@
 import './phase3-ui.css'
+import { icon } from './icons.js'
 
 const favKey='mk_favorites_v1'
 const getFav=()=>JSON.parse(localStorage.getItem(favKey)||'[]')
@@ -8,8 +9,8 @@ const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'
 function notificationBell(){
   const actions=document.querySelector('.workspace-header-actions')
   if(!actions||document.querySelector('#phase3Notifications'))return
-  const b=document.createElement('button');b.className='header-icon phase3-notify';b.id='phase3Notifications';b.setAttribute('aria-label','Bildirimler');b.innerHTML='🔔<span class="phase3-badge" hidden></span>'
-  const panel=document.createElement('div');panel.className='phase3-notify-panel';panel.hidden=true;panel.innerHTML='<div class="phase3-notify-head"><strong>Bildirimler</strong><button type="button" data-notify-close>×</button></div><div class="phase3-notify-list"><span class="phase3-muted">Bildirimler yükleniyor…</span></div>'
+  const b=document.createElement('button');b.className='header-icon phase3-notify';b.id='phase3Notifications';b.setAttribute('aria-label','Bildirimler');b.innerHTML=icon('bell',20)+'<span class="phase3-badge" hidden></span>'
+  const panel=document.createElement('div');panel.className='phase3-notify-panel';panel.hidden=true;panel.innerHTML='<div class="phase3-notify-head"><strong>Bildirimler</strong><button type="button" data-notify-close aria-label="Kapat">'+icon('x',18)+'</button></div><div class="phase3-notify-list"><span class="phase3-muted">Bildirimler yükleniyor…</span></div>'
   actions.prepend(b);actions.append(panel)
   b.onclick=async()=>{panel.hidden=!panel.hidden;if(!panel.hidden)await loadNotifications(panel)}
   panel.querySelector('[data-notify-close]').onclick=()=>panel.hidden=true
@@ -29,7 +30,7 @@ function favoriteButtons(){
   const page=document.querySelector('#workspaceContent');if(!page||page.dataset.phase3Fav==='1')return
   page.dataset.phase3Fav='1'
   const candidates=[...page.querySelectorAll('[data-student-id],[data-user-id]')]
-  candidates.forEach(el=>{const id=el.dataset.studentId||el.dataset.userId;if(!id||el.querySelector('.phase3-fav'))return;const b=document.createElement('button');b.type='button';b.className='phase3-fav';b.textContent=getFav().includes(id)?'★':'☆';b.title='Favorilere ekle/çıkar';b.onclick=e=>{e.stopPropagation();const f=getFav(),i=f.indexOf(id);i>=0?f.splice(i,1):f.push(id);setFav(f);b.textContent=f.includes(id)?'★':'☆'};el.appendChild(b)})
+  candidates.forEach(el=>{const id=el.dataset.studentId||el.dataset.userId;if(!id||el.querySelector('.phase3-fav'))return;const b=document.createElement('button');b.type='button';b.className='phase3-fav';b.innerHTML=getFav().includes(id)?icon('star',16):icon('starOutline',16);b.title='Favorilere ekle/çıkar';b.onclick=e=>{e.stopPropagation();const f=getFav(),i=f.indexOf(id);i>=0?f.splice(i,1):f.push(id);setFav(f);b.textContent=f.includes(id)?'★':'☆';b.innerHTML=f.includes(id)?icon('star',16):icon('starOutline',16)};el.appendChild(b)})
 }
 function bulkSelection(){
  const page=document.querySelector('#workspaceContent');if(!page||page.dataset.phase3Bulk==='1')return
