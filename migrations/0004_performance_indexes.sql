@@ -1,0 +1,10 @@
+-- Performance indexes for common relationship and ownership lookups.
+CREATE INDEX IF NOT EXISTS idx_teacher_student_teacher_student ON teacher_student_links(teacher_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_parent_student_parent_student ON parent_student_links(parent_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_event_students_student_event ON calendar_event_students(student_id, event_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_students_student_assignment ON assignment_students(student_id, assignment_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_user_start ON calendar_events(user_id, start_at);
+CREATE INDEX IF NOT EXISTS idx_assignments_teacher_due ON assignments(teacher_id, due_at);
+CREATE INDEX IF NOT EXISTS idx_exams_teacher_start ON exams(teacher_id, starts_at);
+CREATE INDEX IF NOT EXISTS idx_evaluations_student_created ON evaluations(student_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_progress_student_created ON progress(student_id, created_at);
