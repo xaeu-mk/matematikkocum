@@ -39,6 +39,12 @@ function attachment(body) {
   return { name: safe(body.attachmentName || 'dosya.pdf').slice(0, 180), data: body.attachmentData, size, type: 'application/pdf' }
 }
 
+const linkStudents = async (db, table, key, id, ids) => {
+  if (!ids.length) return
+  const statements = ids.map(sid => db.prepare(`INSERT OR IGNORE INTO ${table}(${key},student_id) VALUES(?,?)`).bind(id, sid))
+  await db.batch(statements)
+}
+
 export async function onRequest(context) {
   const { db, user, error } = await getSession(context)
   if (error) return error
@@ -65,7 +71,7 @@ export async function onRequest(context) {
       if (!date || !start || !end || !safe(body.title)) return json({ ok: false, error: 'Ders adı, tarih ve saat zorunludur.' }, 400)
       const id = randomId()
       await db.prepare('INSERT INTO calendar_events(id,user_id,title,description,start_at,end_at,type,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(id, teacherId, safe(body.title), safe(body.description || ''), `${date}T${start}:00`, `${date}T${end}:00`, 'lesson', user.id, now()).run()
-      for (const sid of ids) await db.prepare('INSERT OR IGNORE INTO calendar_event_students(event_id,student_id) VALUES(?,?)').bind(id, sid).run()
+      await linkStudents(db, 'calendar_event_students', 'event_id', id, ids)
       return json({ ok: true, id, studentIds: ids }, 201)
     }
 
@@ -85,7 +91,7 @@ export async function onRequest(context) {
       const id = randomId()
       if (action === 'create-assignment') {
         await db.prepare(`INSERT INTO assignments(id,title,description,course_id,teacher_id,due_at,created_at,attachment_name,attachment_data,attachment_size,attachment_type) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(id, safe(body.title), safe(body.description), body.courseId || null, user.id, body.dueAt || null, now(), a?.name || null, a?.data || null, a?.size || null, a?.type || null).run()
-        for (const sid of ids) await db.prepare('INSERT OR IGNORE INTO assignment_students(assignment_id,student_id) VALUES(?,?)').bind(id, sid).run()
+        await linkStudents(db, 'assignment_students', 'assignment_id', id, ids)
       } else {
         await db.prepare(`INSERT INTO exams(id,title,subject,starts_at,duration_minutes,teacher_id,created_at,attachment_name,attachment_data,attachment_size,attachment_type) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(id, safe(body.title), safe(body.subject), body.startsAt || null, Number(body.durationMinutes) || 60, user.id, now(), a?.name || null, a?.data || null, a?.size || null, a?.type || null).run()
       }
